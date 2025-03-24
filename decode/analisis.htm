@@ -170,10 +170,9 @@
 		}
 		
 		function showData(bytes){
-			// toString(16).padStart(2, '0');
 			let text = "";
 			locations.forEach((value, key)=>{
-				let offset = value.target.toString(16).padStart(4, '0').toUpperCase();
+				let offset = value.target.toString(16).padStart(8, '0').toUpperCase();
 				text += `${offset} `;				
 				text += value.call?'C':' ';
 				text += value.confirmed?'+':' ';
@@ -192,7 +191,7 @@
 			let i=0;
 			console.log(bytes.length.toString(16));
 			while(i<bytes.length){
-				text += i.toString(16).padStart(4, '0');
+				text += i.toString(16).padStart(8, '0');
 				text += " : ";
 				let x;
 				let line = "";
