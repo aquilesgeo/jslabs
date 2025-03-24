@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reverse Engineering tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #hex-output {
+            white-space: pre-wrap;
+            font-family: "Courier New", Courier, monospace;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ccc;
+            max-width: 100%;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Reverse Engineering</h1>
+    <input type="file" id="file-input" />
+    
+	
+	<table style="width:100%">
+	<tr><td style="vertical-align:top">
+    <div id="hex-output"><pre id="codeLocations"></pre></div>
+	</td><td style="vertical-align:top">
+	<div id="hex-output"><pre id="hexaData"></pre></div>
+	</td></tr>
+	</table>
+
+
+    <script>
+	
+		let locations = new Map();
+		
+		function newLocation(target){
+			let loc;
+			if (locations.has(target)){
+				loc = locations.get(target);
+				loc.count++;
+			}else{
+				loc = {
+					call:false, 
+					jump:false, 
+					loop:false,
+					ret:false,
+					target,				
+					count:1};
+				locations.set(target, loc);
+			}
+			return loc;
+		}
+		
+		function addLocation(buffer, offset, todo){
+			let target = offset + 2 + byteToInt(buffer[offset+1]);
+			if (target<0 || target>=buffer.length){
+				return;
+			}
+			let loc = newLocation(target);
+			todo(loc);
+		}
+		
+		const patterns = [
+				{
+					bytes:[0xE8, 0x00],
+					mask:[0xFF, 0x00],
+					todo:function(buffer, offset){
+						let loc = addLocation(buffer, offset, (loc)=>{
+							loc.call = true;
+						});
+						
+					}
+				},
+				{
+					bytes:[0xEB, 0x00],
+					mask:[0xFF, 0x00],
+					todo:function(buffer, offset){
+						let loc = addLocation(buffer, offset, (loc)=>{
+							loc.jump = true;
+						});
+					}
+				},
+				{
+					bytes:[0x70, 0x00],
+					mask:[0xF0, 0x00],
+					todo:function(buffer, offset){
+						let loc = addLocation(buffer, offset, (loc)=>{
+							loc.jump = true;
+						});
+					}
+				},
+				{	// LOOPNE (E0) LOOPE (E1) LOOP (E2) JCXZ (E3)
+					bytes:[0xE0, 0x00],
+					mask:[0xFC, 0x00],
+					todo:function(buffer, offset){
+						let loc = addLocation(buffer, offset, (loc)=>{
+							loc.loop = true;
+						});
+					}
+				},
+				{
+					bytes:[0x55, 0x89, 0xE5],
+					mask:[0xFF, 0xFF, 0xFF],					
+					todo:function(buffer, offset){
+						let loc = locations.get(offset);
+						if (loc!=null && loc!=undefined){
+							loc.confirmed = true;
+						}
+					}
+				},
+				{
+					bytes:[0xC3],
+					mask:[0xFF],
+					todo:function(buffer, offset){
+						let loc = locations.get(offset+1);
+						if (loc!=null && loc!=undefined){
+							loc.confirmed = true;
+						}
+					}
+				},
+				{
+					bytes:[0x5D, 0xC2, 0x00, 0x00],
+					mask:[0xFF, 0xFF, 0x00, 0x00],
+					todo:function(buffer, offset){
+						let loc = locations.get(offset+4);
+						if (loc!=null && loc!=undefined){
+							loc.confirmed = true;
+						}
+					}
+				}
+			];
+		
+		function f(id){
+			return document.getElementById(id);
+		}
+		
+		function byteToInt(byte) {
+			if (byte < 128) {
+				return byte;
+			} else {
+				return byte - 256;
+			}
+		}
+		
+		function processLocations(buffer){
+			locations.clear();			
+			for(let i=0;i<buffer.length;i++){
+				for(let p=0;p<patterns.length;p++){
+					if ((i + patterns[p].bytes.length)>=buffer.length){
+						continue;
+					}
+					let match = 0;					
+					for(let s = 0;s<patterns[p].bytes.length;s++){
+						let v = (~patterns[p].mask[s])|(~(buffer[i+s]^patterns[p].bytes[s]));						
+						if (v==-1){
+							match++;
+						}
+					}
+					if (match==patterns[p].bytes.length){
+						patterns[p].todo(buffer, i);
+					}
+				}
+			}
+			
+		}
+		
+		function showData(bytes){
+			// toString(16).padStart(2, '0');
+			let text = "";
+			locations.forEach((value, key)=>{
+				let offset = value.target.toString(16).padStart(4, '0').toUpperCase();
+				text += `${offset} `;				
+				text += value.call?'C':' ';
+				text += value.confirmed?'+':' ';
+				text += ' ';
+				text += value.jump?'J':' ';
+				text += ' ';
+				text += value.loop?'L':' ';
+				text += ' ';
+				text += value.count.toString(10).padStart(5, ' ');
+				text += '\n';
+				
+			});
+			f('codeLocations').innerHTML = text;
+			
+			text = "     : 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 0123456789ABCDEF\n";
+			let i=0;
+			while(i<bytes.length){
+				text += i.toString(16).padStart(4, '0');
+				text += " : ";
+				let x;
+				let line = "";
+				for(x = 0;x<16 && i<bytes.length;x++){
+					let hx = bytes[i+x].toString(16).padStart(2, '0');
+					line += hx;
+					line += " ";
+				}
+				line = line.padEnd(16-x,"   ");
+				for(x = 0;x<16 && i<bytes.length;x++){
+					let chr = ".";
+					if (32<= bytes[i+x] && bytes[i+x]<127){
+						chr = String.fromCharCode(bytes[i+x]);
+					}
+					line += chr;
+				}
+				line = line.padEnd(16-x," ");
+				text += line + "\n";
+				i += x;
+			}
+			text += "     : 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 0123456789ABCDEF\n";
+			f('hexaData').innerHTML = text;
+		}
+
+        // Function to handle the file input and read the file as ArrayBuffer
+        function handleFile(event) {
+			
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+				let bytes = new Uint8Array(e.target.result);
+                processLocations(bytes);
+				
+				showData(bytes);
+            };
+            reader.readAsArrayBuffer(file);
+			
+        }
+
+        // Adding event listener to the file input element
+        document.getElementById('file-input').addEventListener('change', handleFile);
+    </script>
+</body>
+</html>

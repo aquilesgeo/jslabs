@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binary File Viewer (Hex)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #hex-output {
+            white-space: pre-wrap;
+            font-family: "Courier New", Courier, monospace;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ccc;
+            max-width: 100%;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Binary File Viewer (Hex Format)</h1>
+    <input type="file" id="file-input" />
+    <h3>Hexadecimal Output:</h3>
+    <div id="hex-output"></div>
+
+    <script>
+        // Function to convert ArrayBuffer to Hexadecimal format
+        function arrayBufferToHex(buffer) {
+            let hexArray = [];
+            let view = new DataView(buffer);
+            for (let i = 0; i < buffer.byteLength; i++) {
+                let hex = view.getUint8(i).toString(16).padStart(2, '0');
+                hexArray.push(hex);
+            }
+            return hexArray.join(' ');
+        }
+
+        // Function to handle the file input and read the file as ArrayBuffer
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const buffer = e.target.result;
+                const hexContent = arrayBufferToHex(buffer);
+                document.getElementById('hex-output').textContent = hexContent;
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Adding event listener to the file input element
+        document.getElementById('file-input').addEventListener('change', handleFile);
+    </script>
+</body>
+</html>
